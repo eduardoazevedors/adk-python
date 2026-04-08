@@ -15,28 +15,40 @@
 """Ponto de entrada para o monitor de movimentacoes processuais.
 
 Uso:
-    # Execucao manual
-    python -m monitor_processual.main
+    # Instalar dependencias
+    pip install -e ".[dev]"
 
-    # Via crontab (diariamente as 8h)
-    # 0 8 * * * cd /caminho/do/projeto && python -m monitor_processual.main
+    # Execucao automatica (verifica todos os processos)
+    monitor-processual
+    # ou: python -m monitor_processual.main
 
-    # Via ADK CLI (modo interativo com UI web)
-    # adk web contributing/samples/monitor_processual
+    # Modo interativo (consultas sob demanda)
+    monitor-processual --interativo
+    # ou: python -m monitor_processual.main --interativo
+
+    # Via ADK CLI (UI web)
+    adk web .
+
+    # Agendar via crontab (diariamente as 8h)
+    # 0 8 * * * cd /caminho/do/projeto && monitor-processual
 """
 
 import asyncio
 import logging
+import sys
 
-from google.adk.cli.utils import logs
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-from monitor_processual.agent import root_agent
-from monitor_processual.settings import PROCESSOS_MONITORADOS
+from .agent import root_agent
+from .settings import PROCESSOS_MONITORADOS
 
-logs.setup_adk_logger(level=logging.INFO)
-logger = logging.getLogger("google_adk." + __name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("monitor_processual")
 
 APP_NAME = "monitor_processual"
 USER_ID = "monitor_user"
@@ -49,8 +61,8 @@ async def executar_verificacao():
 
     if total == 0:
         logger.warning(
-            "Nenhum processo configurado em PROCESSOS_MONITORADOS. "
-            "Edite settings.py para adicionar processos."
+            "Nenhum processo configurado. "
+            "Edite processos.json para adicionar processos."
         )
         return
 
@@ -85,7 +97,6 @@ async def executar_verificacao():
         ):
             text = event.content.parts[0].text
             if text:
-                # Exibe o progresso de cada agente
                 agent_name = getattr(event, "author", "agente")
                 logger.info(f"[{agent_name}] {text[:200]}")
 
@@ -139,10 +150,13 @@ async def modo_interativo():
     print("Encerrando.")
 
 
-if __name__ == "__main__":
-    import sys
-
+def cli():
+    """Ponto de entrada para o comando 'monitor-processual'."""
     if "--interativo" in sys.argv:
         asyncio.run(modo_interativo())
     else:
         asyncio.run(executar_verificacao())
+
+
+if __name__ == "__main__":
+    cli()

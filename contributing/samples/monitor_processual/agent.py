@@ -17,11 +17,11 @@
 from google.adk.agents import SequentialAgent
 from google.adk.agents.llm_agent import Agent
 
-from monitor_processual.settings import LLM_MODEL_NAME
-from monitor_processual.tools import consultar_movimentacoes
-from monitor_processual.tools import listar_processos_monitorados
-from monitor_processual.tools import notificar_responsavel
-from monitor_processual.tools import registrar_movimentacao
+from .settings import LLM_MODEL_NAME
+from .tools import consultar_movimentacoes
+from .tools import listar_processos_monitorados
+from .tools import notificar_responsavel
+from .tools import registrar_movimentacao
 
 # --- Agente 1: Monitor ---
 # Consulta os tribunais e coleta movimentacoes novas.
@@ -67,7 +67,7 @@ Analise cada movimentacao processual recebida e classifique como:
 - Sentenca ou acordao
 - Decisao interlocutoria
 - Despacho com prazo
-- Trânsito em julgado
+- Transito em julgado
 - Penhora ou bloqueio
 - Hasta publica / leilao
 - Tutela de urgencia

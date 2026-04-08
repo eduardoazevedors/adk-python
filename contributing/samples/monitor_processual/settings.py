@@ -12,7 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
+
+# Carrega .env se python-dotenv estiver instalado
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
+# Diretorio raiz do projeto (onde esta o pyproject.toml)
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 # --- LLM ---
 LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME", "gemini-2.0-flash")
@@ -27,7 +39,6 @@ DATAJUD_BASE_URL = os.environ.get(
 )
 
 # --- Tribunais suportados (endpoints da API DataJud) ---
-# Mapeamento de sigla do tribunal para o endpoint da API
 TRIBUNAIS = {
     "TJSP": "api_publica_tjsp",
     "TJRJ": "api_publica_tjrj",
@@ -62,22 +73,19 @@ EMAIL_DESTINATARIO = os.environ.get("EMAIL_DESTINATARIO", "")
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
 
 # --- Carteira de processos ---
-# Lista de processos para monitorar.
-# Formato: lista de dicts com "numero" (numero unificado CNJ) e "tribunal"
-# Pode ser carregado de um arquivo JSON ou banco de dados em producao.
-PROCESSOS_MONITORADOS = [
-    {
-        "numero": "0000000-00.0000.0.00.0000",
-        "tribunal": "TJSP",
-        "responsavel": "Dr. Silva",
-        "email_responsavel": "silva@escritorio.com.br",
-    },
-    # Adicione mais processos aqui
-]
+# Carrega de processos.json (ou caminho customizado via env)
+PROCESSOS_PATH = os.environ.get(
+    "PROCESSOS_PATH",
+    os.path.join(PROJECT_ROOT, "processos.json"),
+)
+
+PROCESSOS_MONITORADOS = []
+if os.path.exists(PROCESSOS_PATH):
+    with open(PROCESSOS_PATH, "r", encoding="utf-8") as f:
+        PROCESSOS_MONITORADOS = json.load(f)
 
 # --- Armazenamento local ---
-# Arquivo JSON para guardar a data da ultima verificacao por processo
 HISTORICO_PATH = os.environ.get(
     "HISTORICO_PATH",
-    os.path.join(os.path.dirname(__file__), "historico_movimentacoes.json"),
+    os.path.join(PROJECT_ROOT, "historico_movimentacoes.json"),
 )

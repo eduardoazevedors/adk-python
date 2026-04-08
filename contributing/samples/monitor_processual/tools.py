@@ -24,19 +24,9 @@ from typing import Any
 
 import requests
 
-from monitor_processual.settings import DATAJUD_API_KEY
-from monitor_processual.settings import DATAJUD_BASE_URL
-from monitor_processual.settings import EMAIL_DESTINATARIO
-from monitor_processual.settings import HISTORICO_PATH
-from monitor_processual.settings import PROCESSOS_MONITORADOS
-from monitor_processual.settings import SLACK_WEBHOOK_URL
-from monitor_processual.settings import SMTP_HOST
-from monitor_processual.settings import SMTP_PASSWORD
-from monitor_processual.settings import SMTP_PORT
-from monitor_processual.settings import SMTP_USER
-from monitor_processual.settings import TRIBUNAIS
+from . import settings
 
-logger = logging.getLogger("google_adk." + __name__)
+logger = logging.getLogger("monitor_processual." + __name__)
 
 
 # --- Historico local ---
@@ -44,15 +34,15 @@ logger = logging.getLogger("google_adk." + __name__)
 
 def _carregar_historico() -> dict:
     """Carrega o historico de movimentacoes ja vistas."""
-    if os.path.exists(HISTORICO_PATH):
-        with open(HISTORICO_PATH, "r", encoding="utf-8") as f:
+    if os.path.exists(settings.HISTORICO_PATH):
+        with open(settings.HISTORICO_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 
 def _salvar_historico(historico: dict) -> None:
     """Salva o historico de movimentacoes."""
-    with open(HISTORICO_PATH, "w", encoding="utf-8") as f:
+    with open(settings.HISTORICO_PATH, "w", encoding="utf-8") as f:
         json.dump(historico, f, ensure_ascii=False, indent=2)
 
 
@@ -69,20 +59,19 @@ def consultar_movimentacoes(numero_processo: str, tribunal: str) -> dict[str, An
     Returns:
         Dicionario com as movimentacoes encontradas ou mensagem de erro.
     """
-    endpoint = TRIBUNAIS.get(tribunal.upper())
+    endpoint = settings.TRIBUNAIS.get(tribunal.upper())
     if not endpoint:
         return {
             "status": "erro",
             "mensagem": f"Tribunal '{tribunal}' nao suportado. "
-            f"Tribunais disponiveis: {', '.join(TRIBUNAIS.keys())}",
+            f"Tribunais disponiveis: {', '.join(settings.TRIBUNAIS.keys())}",
         }
 
-    # Numero limpo (apenas digitos)
     numero_limpo = numero_processo.replace("-", "").replace(".", "")
 
-    url = f"{DATAJUD_BASE_URL}/{endpoint}/_search"
+    url = f"{settings.DATAJUD_BASE_URL}/{endpoint}/_search"
     headers = {
-        "Authorization": f"APIKey {DATAJUD_API_KEY}",
+        "Authorization": f"APIKey {settings.DATAJUD_API_KEY}",
         "Content-Type": "application/json",
     }
     body = {
@@ -140,7 +129,6 @@ def consultar_movimentacoes(numero_processo: str, tribunal: str) -> dict[str, An
     }
     _salvar_historico(historico)
 
-    # Dados basicos do processo
     info_processo = {
         "numero": numero_processo,
         "tribunal": tribunal,
@@ -167,7 +155,7 @@ def listar_processos_monitorados() -> dict[str, Any]:
         Dicionario com a lista de processos monitorados.
     """
     processos = []
-    for p in PROCESSOS_MONITORADOS:
+    for p in settings.PROCESSOS_MONITORADOS:
         processos.append({
             "numero": p["numero"],
             "tribunal": p["tribunal"],
@@ -244,13 +232,13 @@ def notificar_responsavel(
     """
     assunto = f"[Monitor Processual] Nova movimentacao - {numero_processo}"
 
-    if canal == "slack" and SLACK_WEBHOOK_URL:
+    if canal == "slack" and settings.SLACK_WEBHOOK_URL:
         try:
             payload = {
                 "text": f"*{assunto}*\n\n{mensagem}",
             }
             resp = requests.post(
-                SLACK_WEBHOOK_URL, json=payload, timeout=10
+                settings.SLACK_WEBHOOK_URL, json=payload, timeout=10
             )
             resp.raise_for_status()
             logger.info(f"Notificacao Slack enviada para {responsavel}.")
@@ -262,9 +250,7 @@ def notificar_responsavel(
             logger.error(f"Erro ao enviar Slack: {e}")
             return {"status": "erro", "mensagem": f"Falha no envio Slack: {e}"}
 
-    # Email
-    if not SMTP_USER or not SMTP_PASSWORD:
-        # Modo simulacao quando nao ha credenciais configuradas
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         logger.info(
             f"[SIMULACAO] Email para {responsavel}: {assunto}\n{mensagem}"
         )
@@ -277,21 +263,20 @@ def notificar_responsavel(
         }
 
     try:
-        # Buscar email do responsavel na carteira
-        email_dest = EMAIL_DESTINATARIO
-        for p in PROCESSOS_MONITORADOS:
+        email_dest = settings.EMAIL_DESTINATARIO
+        for p in settings.PROCESSOS_MONITORADOS:
             if p["numero"] == numero_processo:
-                email_dest = p.get("email_responsavel", EMAIL_DESTINATARIO)
+                email_dest = p.get("email_responsavel", settings.EMAIL_DESTINATARIO)
                 break
 
         msg = MIMEText(mensagem, "plain", "utf-8")
         msg["Subject"] = assunto
-        msg["From"] = SMTP_USER
+        msg["From"] = settings.SMTP_USER
         msg["To"] = email_dest
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
             server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.send_message(msg)
 
         logger.info(f"Email enviado para {responsavel} ({email_dest}).")
