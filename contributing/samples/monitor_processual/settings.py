@@ -107,11 +107,41 @@ TRIBUNAIS = {
     "TRT22": "api_publica_trt22",
     "TRT23": "api_publica_trt23",
     "TRT24": "api_publica_trt24",
-    # Tribunais Regionais Eleitorais
-    "TRE-SP": "api_publica_tresp",
-    "TRE-RJ": "api_publica_trerj",
-    "TRE-MG": "api_publica_tremg",
+    # Tribunais Regionais Eleitorais (endpoint usa hifen: api_publica_tre-uf)
+    "TRE-AC": "api_publica_tre-ac",
+    "TRE-AL": "api_publica_tre-al",
+    "TRE-AM": "api_publica_tre-am",
+    "TRE-AP": "api_publica_tre-ap",
+    "TRE-BA": "api_publica_tre-ba",
+    "TRE-CE": "api_publica_tre-ce",
+    "TRE-DF": "api_publica_tre-df",
+    "TRE-ES": "api_publica_tre-es",
+    "TRE-GO": "api_publica_tre-go",
+    "TRE-MA": "api_publica_tre-ma",
+    "TRE-MG": "api_publica_tre-mg",
+    "TRE-MS": "api_publica_tre-ms",
+    "TRE-MT": "api_publica_tre-mt",
+    "TRE-PA": "api_publica_tre-pa",
+    "TRE-PB": "api_publica_tre-pb",
+    "TRE-PE": "api_publica_tre-pe",
+    "TRE-PI": "api_publica_tre-pi",
+    "TRE-PR": "api_publica_tre-pr",
+    "TRE-RJ": "api_publica_tre-rj",
+    "TRE-RN": "api_publica_tre-rn",
+    "TRE-RO": "api_publica_tre-ro",
+    "TRE-RR": "api_publica_tre-rr",
+    "TRE-RS": "api_publica_tre-rs",
+    "TRE-SC": "api_publica_tre-sc",
+    "TRE-SE": "api_publica_tre-se",
+    "TRE-SP": "api_publica_tre-sp",
+    "TRE-TO": "api_publica_tre-to",
+    # Tribunais Militares Estaduais
+    "TJMMG": "api_publica_tjmmg",
+    "TJMRS": "api_publica_tjmrs",
+    "TJMSP": "api_publica_tjmsp",
 }
+# NOTA: O STF nao possui endpoint publico na API DataJud (verificado em 2026).
+# Para consultas ao STF, usar o portal: portal.stf.jus.br/servicos
 
 # Mapeamento de tribunal para estado (para calculo de feriados estaduais)
 TRIBUNAL_ESTADO = {

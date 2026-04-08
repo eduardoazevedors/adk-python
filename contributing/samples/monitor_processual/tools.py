@@ -22,6 +22,8 @@ from datetime import date, datetime
 from email.mime.text import MIMEText
 from typing import Any
 
+import time
+
 import requests
 
 from . import settings
@@ -30,6 +32,41 @@ from .prazos import calcular_prazo_publicacao_dje
 from .prazos import PRAZOS_COMUNS
 
 logger = logging.getLogger("monitor_processual." + __name__)
+
+# Retry com backoff exponencial para rate limiting da API DataJud
+MAX_RETRIES = 3
+BACKOFF_BASE = 2  # segundos
+
+
+def _datajud_request(url: str, headers: dict, body: dict) -> dict:
+    """Faz requisicao POST a API DataJud com retry e backoff exponencial."""
+    for tentativa in range(MAX_RETRIES + 1):
+        try:
+            response = requests.post(url, json=body, headers=headers, timeout=30)
+            if response.status_code == 429:
+                # Rate limited — aguardar e tentar novamente
+                wait = BACKOFF_BASE ** (tentativa + 1)
+                logger.warning(
+                    f"Rate limited pela API DataJud. "
+                    f"Tentativa {tentativa + 1}/{MAX_RETRIES}. "
+                    f"Aguardando {wait}s..."
+                )
+                time.sleep(wait)
+                continue
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            if tentativa < MAX_RETRIES:
+                wait = BACKOFF_BASE ** (tentativa + 1)
+                logger.warning(
+                    f"Erro na requisicao ({e}). "
+                    f"Tentativa {tentativa + 1}/{MAX_RETRIES}. "
+                    f"Aguardando {wait}s..."
+                )
+                time.sleep(wait)
+            else:
+                raise
+    return {}
 
 
 # --- Historico local ---
@@ -84,12 +121,24 @@ def consultar_movimentacoes(numero_processo: str, tribunal: str) -> dict[str, An
             }
         },
         "size": 1,
+        # Filtrar campos para reduzir payload (recomendacao da wiki DataJud)
+        "_source": {
+            "includes": [
+                "numeroProcesso",
+                "classe",
+                "assuntos",
+                "orgaoJulgador",
+                "movimentos",
+                "dataAjuizamento",
+                "grau",
+                "formato",
+                "datamart",
+            ]
+        },
     }
 
     try:
-        response = requests.post(url, json=body, headers=headers, timeout=30)
-        response.raise_for_status()
-        data = response.json()
+        data = _datajud_request(url, headers, body)
     except requests.exceptions.RequestException as e:
         logger.error(f"Erro ao consultar DataJud para {numero_processo}: {e}")
         return {
@@ -124,6 +173,9 @@ def consultar_movimentacoes(numero_processo: str, tribunal: str) -> dict[str, An
                 "complemento": mov.get("complementosTabelados", []),
             })
 
+    # Ordenar por data (mais recente primeiro)
+    novas.sort(key=lambda m: m["data"], reverse=True)
+
     # Atualizar historico
     historico[numero_processo] = {
         "ultima_verificacao": datetime.now().isoformat(),
@@ -132,6 +184,7 @@ def consultar_movimentacoes(numero_processo: str, tribunal: str) -> dict[str, An
     }
     _salvar_historico(historico)
 
+    # Dados basicos do processo
     info_processo = {
         "numero": numero_processo,
         "tribunal": tribunal,
@@ -140,7 +193,17 @@ def consultar_movimentacoes(numero_processo: str, tribunal: str) -> dict[str, An
             a.get("nome", "") for a in processo.get("assuntos", [])
         ),
         "orgao_julgador": processo.get("orgaoJulgador", {}).get("nome", ""),
+        "data_ajuizamento": processo.get("dataAjuizamento", ""),
+        "grau": processo.get("grau", ""),
+        "formato": processo.get("formato", {}).get("nome", ""),
     }
+
+    # Campos do datamart (quando disponíveis) — detecta situação atual e baixa
+    datamart = processo.get("datamart", {})
+    if datamart:
+        info_processo["situacao_atual"] = datamart.get("situacao_atual", "")
+        info_processo["fase_atual"] = datamart.get("fase_atual", "")
+        info_processo["data_baixa"] = datamart.get("data_baixa", "")
 
     return {
         "status": "sucesso",
@@ -154,6 +217,9 @@ def consultar_movimentacoes(numero_processo: str, tribunal: str) -> dict[str, An
 def listar_processos_monitorados() -> dict[str, Any]:
     """Lista todos os processos da carteira que estao sendo monitorados.
 
+    Retorna dados completos de cada processo incluindo area, fase,
+    cliente, responsavel, prioridade e valor da causa.
+
     Returns:
         Dicionario com a lista de processos monitorados.
     """
@@ -163,6 +229,13 @@ def listar_processos_monitorados() -> dict[str, Any]:
             "numero": p["numero"],
             "tribunal": p["tribunal"],
             "responsavel": p.get("responsavel", "Nao definido"),
+            "area": p.get("area", ""),
+            "fase": p.get("fase", ""),
+            "cliente": p.get("cliente", ""),
+            "polo": p.get("polo", ""),
+            "parte_contraria": p.get("parte_contraria", ""),
+            "prioridade": p.get("prioridade", "normal"),
+            "valor_causa": p.get("valor_causa", 0.0),
         })
 
     return {
