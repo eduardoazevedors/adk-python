@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "monitor-processual"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agente de monitoramento de movimentacoes processuais usando Google ADK"
 requires-python = ">=3.10"
 dependencies = [

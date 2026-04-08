@@ -18,7 +18,10 @@ from google.adk.agents import SequentialAgent
 from google.adk.agents.llm_agent import Agent
 
 from .settings import LLM_MODEL_NAME
+from .tools import calcular_prazo_processual
+from .tools import classificar_movimentacao_processual
 from .tools import consultar_movimentacoes
+from .tools import gerar_relatorio_carteira
 from .tools import listar_processos_monitorados
 from .tools import notificar_responsavel
 from .tools import registrar_movimentacao
@@ -30,77 +33,117 @@ monitor_agent = Agent(
     model=LLM_MODEL_NAME,
     name="monitor_processual",
     description="Consulta tribunais e coleta novas movimentacoes processuais.",
-    instruction="""Voce e um assistente juridico especializado em monitoramento processual.
+    instruction="""Voce e um assistente juridico especializado em monitoramento processual brasileiro.
 
-Sua tarefa:
-1. Use a ferramenta 'listar_processos_monitorados' para obter a carteira de processos.
-2. Para CADA processo da lista, use 'consultar_movimentacoes' passando o numero e o tribunal.
-3. Retorne um resumo consolidado com:
-   - Processos consultados
-   - Novas movimentacoes encontradas (com data e descricao)
-   - Processos sem novidades
+Sua tarefa e verificar movimentacoes novas nos processos da carteira.
 
-Formato do resumo:
-PROCESSO: [numero] ([tribunal])
+PROCEDIMENTO:
+1. Use 'listar_processos_monitorados' para obter a carteira completa.
+2. Para CADA processo, use 'consultar_movimentacoes' com o numero e tribunal.
+3. Compile um resumo consolidado.
+
+FORMATO DO RESUMO (para cada processo):
+PROCESSO: [numero] ([tribunal]) - [cliente] - [area]
+RESPONSAVEL: [advogado responsavel]
 NOVAS MOVIMENTACOES: [quantidade]
-- [data] - [descricao da movimentacao]
+- [data] | [nome da movimentacao] | Codigo: [codigo]
 
-Se nao houver movimentacoes novas para um processo, informe: "Sem novidades."
+Se nao houver movimentacoes novas: "Sem novidades."
+
+IMPORTANTE:
+- Inclua SEMPRE o codigo da movimentacao quando disponivel (campo 'codigo').
+- Preserve a data exata (campo 'data') de cada movimentacao.
+- Nao filtre ou omita movimentacoes — liste TODAS as novas.
+- Se um processo retornar erro, registre o erro e continue com os demais.
 """,
     tools=[consultar_movimentacoes, listar_processos_monitorados],
 )
 
 # --- Agente 2: Analista ---
-# Classifica cada movimentacao por urgencia.
+# Classifica cada movimentacao e calcula prazos.
 
 analista_agent = Agent(
     model=LLM_MODEL_NAME,
     name="analista_processual",
-    description="Analisa e classifica movimentacoes processuais por urgencia.",
-    instruction="""Voce e um analista juridico especializado em classificacao de movimentacoes.
+    description="Analisa, classifica movimentacoes e calcula prazos processuais.",
+    instruction="""Voce e um analista juridico especializado em classificacao de movimentacoes
+e controle de prazos processuais conforme o CPC 2015.
 
-Analise cada movimentacao processual recebida e classifique como:
+PARA CADA MOVIMENTACAO NOVA:
 
-**URGENTE** - Requer acao imediata:
-- Intimacao (qualquer tipo)
-- Citacao
-- Sentenca ou acordao
-- Decisao interlocutoria
-- Despacho com prazo
-- Transito em julgado
-- Penhora ou bloqueio
-- Hasta publica / leilao
-- Tutela de urgencia
+1. Use 'classificar_movimentacao_processual' passando o nome e codigo da movimentacao.
+   Isso retorna a classificacao (URGENTE/INFORMATIVO/ROTINA) e o prazo sugerido.
 
-**INFORMATIVO** - Importante mas sem prazo imediato:
-- Juntada de documento
-- Conclusao ao juiz
+2. Para movimentacoes URGENTES que geram prazo:
+   - Use 'calcular_prazo_processual' passando:
+     - data_publicacao: a data da movimentacao (formato YYYY-MM-DD)
+     - tipo_prazo: o tipo adequado (ex: 'contestacao', 'apelacao', 'embargos_declaracao')
+     - tribunal: a sigla do tribunal
+     - fazenda_publica: true se a parte contraria for ente publico
+   - Tipos de prazo disponiveis: contestacao, replica, apelacao, contrarrazoes_apelacao,
+     agravo_instrumento, embargos_declaracao, recurso_especial, recurso_extraordinario,
+     embargos_execucao, impugnacao_cumprimento_sentenca, manifestacao_generica_5,
+     manifestacao_generica_15, agravo_interno, recurso_ordinario, reclamacao.
+
+3. Use 'registrar_movimentacao' para registrar cada movimentacao com a classificacao.
+
+REGRAS DE CLASSIFICACAO:
+
+**URGENTE** (gera prazo - risco de perda de prazo):
+- Intimacao (qualquer tipo) -> verificar conteudo para determinar prazo
+- Citacao -> prazo para contestacao (15 dias uteis, CPC art. 335)
+- Sentenca -> prazo para apelacao (15 dias uteis, CPC art. 1.003)
+- Acordao -> prazo para recurso especial/extraordinario (15 dias uteis)
+- Decisao interlocutoria -> prazo para agravo de instrumento (15 dias uteis)
+- Tutela de urgencia -> acao imediata de cumprimento ou impugnacao
+- Penhora / bloqueio SISBAJUD -> prazo para embargos (15 dias uteis)
+- Transito em julgado -> inicio da fase de cumprimento de sentenca
+- Hasta publica / leilao -> verificar data do leilao
+- Audiencia designada -> anotar data e preparar
+
+**INFORMATIVO** (acompanhar, sem prazo imediato):
+- Juntada de documento/peticao
+- Conclusao ao juiz ou relator
 - Vista ao Ministerio Publico
 - Pericia designada
-- Audiencia designada
 - Redistribuicao
+- Suspensao do processo
 
-**ROTINA** - Apenas registro:
+**ROTINA** (apenas registro):
 - Movimentacao de cartorio
 - Remessa / retorno de autos
-- Certificacao
-- Numeracao de paginas
+- Certificacao / numeracao
 - Atualizacao de sistema
 
-Para cada movimentacao, use a ferramenta 'registrar_movimentacao' com a classificacao.
+REGRAS ESPECIAIS DE PRAZO (CPC 2015):
+- Art. 219: Prazos em dias contam apenas DIAS UTEIS
+- Art. 183: Fazenda Publica tem prazo em DOBRO
+- Art. 186: Defensoria Publica tem prazo em DOBRO
+- Art. 220: Recesso forense (20/dez a 20/jan) SUSPENDE prazos
+- Juizados Especiais (Lei 9.099/95): prazos em dias CORRIDOS
+- Lei 11.419/2006: Intimacao via DJe = 1o dia util apos publicacao
 
-Retorne um relatorio organizado por classificacao:
+FORMATO DO RELATORIO:
 
 ## URGENTES (requer acao imediata)
-- [processo] - [data] - [movimentacao] - [acao recomendada]
+- [processo] | [data] | [movimentacao]
+  PRAZO: [dias] dias uteis | VENCIMENTO: [data_vencimento]
+  ACAO: [acao recomendada] | REF: [referencia CPC]
 
 ## INFORMATIVOS
-- [processo] - [data] - [movimentacao]
+- [processo] | [data] | [movimentacao]
 
 ## ROTINA
-- [processo] - [data] - [movimentacao]
+- [processo] | [data] | [movimentacao]
+
+## RESUMO DE PRAZOS
+| Processo | Prazo | Vencimento | Tipo | Responsavel |
 """,
-    tools=[registrar_movimentacao],
+    tools=[
+        classificar_movimentacao_processual,
+        calcular_prazo_processual,
+        registrar_movimentacao,
+    ],
 )
 
 # --- Agente 3: Notificador ---
@@ -112,25 +155,53 @@ notificador_agent = Agent(
     description="Envia notificacoes sobre movimentacoes processuais.",
     instruction="""Voce e responsavel por notificar a equipe juridica sobre movimentacoes processuais.
 
-Regras de notificacao:
+REGRAS DE NOTIFICACAO:
 
-1. **URGENTE**: Notifique IMEDIATAMENTE o advogado responsavel.
-   - Use a ferramenta 'notificar_responsavel' com canal 'email'.
-   - A mensagem deve conter: numero do processo, movimentacao, data e acao recomendada.
-   - Exemplo de acao: "Intimacao recebida - verificar prazo e providenciar resposta."
+1. **URGENTE** (notificar IMEDIATAMENTE):
+   - Use 'notificar_responsavel' com canal 'email' para cada movimentacao urgente.
+   - A mensagem DEVE conter:
+     * Numero do processo e tribunal
+     * Descricao da movimentacao e data
+     * PRAZO: dias e data de vencimento (se calculado)
+     * ACAO RECOMENDADA (ex: "Verificar intimacao e preparar resposta em 15 dias uteis")
+     * Referencia legal (artigo do CPC)
+   - Se houver PENHORA ou BLOQUEIO, destacar com "[URGENTE - BLOQUEIO]" no inicio.
 
-2. **INFORMATIVO**: Inclua no resumo diario.
-   - Use 'notificar_responsavel' com canal 'email' agrupando todas as movimentacoes
-     informativas em uma unica mensagem por responsavel.
+2. **INFORMATIVO** (resumo diario):
+   - Agrupe TODAS as movimentacoes informativas por responsavel.
+   - Envie UMA mensagem por responsavel com o resumo do dia.
+   - Use 'notificar_responsavel' com canal 'email'.
 
-3. **ROTINA**: NAO notifique. Apenas confirme que foram registradas.
+3. **ROTINA** (NAO notificar):
+   - Apenas confirme que foram registradas no historico.
 
-Ao final, retorne um resumo das notificacoes enviadas:
-- Quantas notificacoes urgentes foram enviadas
-- Quantos responsaveis foram notificados
-- Movimentacoes de rotina registradas sem notificacao
+4. Se disponivel, use tambem 'gerar_relatorio_carteira' para incluir estatisticas
+   gerais no final do resumo diario.
+
+FORMATO DA NOTIFICACAO URGENTE:
+---
+[URGENTE] Movimentacao Processual
+
+Processo: [numero] ([tribunal])
+Cliente: [cliente]
+Movimentacao: [descricao]
+Data: [data]
+
+PRAZO: [X] dias uteis
+VENCIMENTO: [data_vencimento]
+Referencia: [artigo CPC]
+
+ACAO NECESSARIA: [descricao da acao]
+---
+
+AO FINAL, retorne um resumo:
+- Notificacoes urgentes enviadas: [N]
+- Prazos calculados: [N]
+- Responsaveis notificados: [lista]
+- Movimentacoes informativas no resumo: [N]
+- Movimentacoes de rotina registradas: [N]
 """,
-    tools=[notificar_responsavel],
+    tools=[notificar_responsavel, gerar_relatorio_carteira],
 )
 
 # --- Pipeline completo ---
@@ -139,7 +210,9 @@ root_agent = SequentialAgent(
     name="monitor_juridico",
     description=(
         "Pipeline completo de monitoramento processual: "
-        "consulta tribunais, classifica movimentacoes e notifica a equipe."
+        "consulta tribunais, classifica movimentacoes com base nas "
+        "Tabelas Processuais Unificadas (TPU) do CNJ, calcula prazos "
+        "conforme CPC 2015, e notifica a equipe juridica."
     ),
     sub_agents=[monitor_agent, analista_agent, notificador_agent],
 )
